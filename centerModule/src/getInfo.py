@@ -1,21 +1,25 @@
 import requests
 import json
+import os
+from dotenv import load_dotenv
 
-def get_alerts(state):
-    # headers = {'User-Agent' : 'mattyershov@gmail.com'}
-    # endpoint = 'https://api.weather.gov/alerts/active/area/{state}'
-    resp = requests.get('https://api.weather.gov/alerts/active/area/{state}', headers={'User-Agent' : 'mattyershov@gmail.com'})
+load_dotenv()
+
+WX_TOKEN = os.environ.get("WX_TOKEN")
+
+def get_alerts():
+    resp = requests.get(f'http://api.weatherapi.com/v1/alerts.json?key={WX_TOKEN}&q=Boston')
     print(resp.status_code)
     if resp.status_code == 200:
         data = resp.json()
-        print(data['features'])
-        return data['features']
+        print(data['alerts']['alert'])
+        return(data['alerts']['alert'])
     else:
         print("error")
         return None
 
 def main():
-    alerts = get_alerts("MA")
+    alerts = get_alerts()
 
 
 if (__name__ == "__main__"):

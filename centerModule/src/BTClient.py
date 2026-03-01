@@ -1,7 +1,6 @@
 import socket
 
 client = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-
 client.connect(("70:9C:D1:B5:BB:7E", 4))
 
 try:
