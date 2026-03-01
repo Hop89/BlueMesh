@@ -399,6 +399,39 @@ class BTChatGUI:
             threading.Thread(target=worker, daemon=True).start()
             return True
 
+        if msg.startswith("/email_send "):
+            payload_b64 = msg[len("/email_send ") :].strip()
+            try:
+                raw = base64.urlsafe_b64decode(payload_b64.encode("ascii")).decode("utf-8")
+                req = json.loads(raw)
+            except Exception as exc:  # noqa: BLE001
+                self._send_line(f"[email] invalid request payload: {exc}")
+                return True
+
+            sender = (req.get("from") or "").strip()
+            recipient = (req.get("to") or "").strip()
+            subject = (req.get("subject") or "").strip()
+            body = (req.get("body") or "").strip()
+
+            def worker():
+                try:
+                    self._log(f"[host] email request to {recipient or '<empty>'}")
+                    emailHandler.send(
+                        recipient,
+                        subject,
+                        body,
+                        sender_email=sender or None,
+                    )
+                    self._send_line(f"[email] sent from host to {recipient}")
+                    self._log(f"[host->peer] [email] sent to {recipient}")
+                except Exception as exc:  # noqa: BLE001
+                    err = f"[email] host send failed: {exc}"
+                    self._send_line(err)
+                    self._log(f"[host->peer] {err}")
+
+            threading.Thread(target=worker, daemon=True).start()
+            return True
+
         return False
 
     def _handle_file_protocol(self, text: str) -> bool:
@@ -681,6 +714,21 @@ class BTChatGUI:
             return
         if not body:
             self._log("[email] message body is required.")
+            return
+
+        if self.mode.get() == "client":
+            try:
+                req = {
+                    "from": sender,
+                    "to": recipient,
+                    "subject": subject,
+                    "body": body,
+                }
+                encoded = base64.urlsafe_b64encode(json.dumps(req).encode("utf-8")).decode("ascii")
+                if self._send_line(f"/email_send {encoded}"):
+                    self._log(f"[client] email send request sent to host for {recipient}")
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"[email] request encode failed: {exc}")
             return
 
         def worker():
