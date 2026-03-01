@@ -268,7 +268,6 @@ class BTChatGUI:
                 if not data:
                     self._log("[system] peer disconnected")
                     break
-<<<<<<< HEAD
                 rx_buffer += data
                 while b"\n" in rx_buffer:
                     raw_line, rx_buffer = rx_buffer.split(b"\n", 1)
@@ -277,15 +276,11 @@ class BTChatGUI:
                         continue
                     if not self._handle_protocol_message(text):
                         self._log(f"peer: {text}")
-=======
-                self._log(f"peer: {data.decode('utf-8', errors='replace')}")
->>>>>>> 27f5cd9f64b3a5aeb74e491b5c102da2562f4a1f
             except OSError as exc:
                 self._log(f"[system] receive error: {exc}")
                 break
         self.running = False
 
-<<<<<<< HEAD
     def _send_line(self, text: str) -> bool:
         if not self.running or not self.conn:
             self._log("[system] not connected")
@@ -381,19 +376,16 @@ class BTChatGUI:
             if state is None:
                 self._log("[file] chunk for unknown transfer")
                 return True
-
             chunk_parts = parts[3].split(" ", 1)
             if len(chunk_parts) != 2:
                 self._log("[file] malformed chunk payload")
                 return True
             b64_data = chunk_parts[1]
-
             try:
                 data = base64.b64decode(b64_data)
             except Exception:  # noqa: BLE001
                 self._log("[file] invalid base64 chunk")
                 return True
-
             state["buf"].extend(data)
             state["sha"].update(data)
             return True
@@ -442,8 +434,6 @@ class BTChatGUI:
         cleaned = "".join(ch for ch in name if ch not in '<>:"/\\|?*').strip()
         return cleaned or "received_file.bin"
 
-=======
->>>>>>> 27f5cd9f64b3a5aeb74e491b5c102da2562f4a1f
     def _server_thread(self):
         try:
             self.sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
@@ -469,20 +459,11 @@ class BTChatGUI:
             self.running = False
 
     def send_message(self):
-        if not self.running or not self.conn:
-            self._log("[system] not connected")
-            return
         text = self.message.get().strip()
         if not text:
             return
-<<<<<<< HEAD
         payload = f"{self.nickname.get().strip() or 'pc'}: {text}"
         if self._send_line(payload):
-=======
-        payload = f"{self.nickname.get().strip() or 'pc'}: {text}".encode("utf-8")
-        try:
-            self.conn.send(payload)
->>>>>>> 27f5cd9f64b3a5aeb74e491b5c102da2562f4a1f
             self._log(f"me: {text}")
             self.message.set("")
 
@@ -534,49 +515,36 @@ class BTChatGUI:
             self._log(f"[file] send failed: {exc}")
 
     def request_weather(self):
-<<<<<<< HEAD
         city = self.city.get().strip() or "Boston"
         if self.mode.get() == "client":
             if self._send_line(f"/weather {city}"):
                 self._log(f"[client] weather request sent to host: {city}")
             return
 
-=======
->>>>>>> 27f5cd9f64b3a5aeb74e491b5c102da2562f4a1f
         def worker():
             try:
                 self._log("[weather] requesting weather API...")
-                result = fetch_weather(self.city.get())
+                result = fetch_weather(city)
                 self._log(f"[weather] {result}")
-<<<<<<< HEAD
                 self._send_line(f"[weather] {result}")
-=======
->>>>>>> 27f5cd9f64b3a5aeb74e491b5c102da2562f4a1f
             except Exception as exc:  # noqa: BLE001
                 self._log(f"[weather] request failed: {exc}")
 
         threading.Thread(target=worker, daemon=True).start()
 
     def request_web_search(self):
-<<<<<<< HEAD
         q = self.search_query.get().strip()
         if self.mode.get() == "client":
             if self._send_line(f"/search {q}"):
                 self._log(f"[client] search request sent to host: {q or '<empty>'}")
             return
 
-=======
->>>>>>> 27f5cd9f64b3a5aeb74e491b5c102da2562f4a1f
         def worker():
             try:
-                q = self.search_query.get().strip()
                 self._log(f"[search] querying: {q or '<empty>'}")
                 result = fetch_web_answer(q)
                 self._log(f"[search] {result}")
-<<<<<<< HEAD
                 self._send_line(f"[search] {result}")
-=======
->>>>>>> 27f5cd9f64b3a5aeb74e491b5c102da2562f4a1f
             except Exception as exc:  # noqa: BLE001
                 self._log(f"[search] request failed: {exc}")
 
