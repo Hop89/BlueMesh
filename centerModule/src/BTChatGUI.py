@@ -256,6 +256,13 @@ class BTChatGUI:
         self.email_message_text = tk.Text(email_message_row, height=4, width=70)
         self.email_message_text.grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
+        email_btn_row = ttk.Frame(frame)
+        email_btn_row.grid(row=12, column=0, sticky="w", pady=(8, 0))
+        self.email_send_btn = ttk.Button(email_btn_row, text="Send Email", command=self.send_email)
+        self.email_send_btn.grid(row=0, column=0)
+        self.email_check_btn = ttk.Button(email_btn_row, text="Check Email", command=self.check_email)
+        self.email_check_btn.grid(row=0, column=1, padx=(8, 0))
+
     def _update_mode_widgets(self):
         is_server = self.mode.get() == "server"
         self.host_entry.configure(state="normal" if is_server else "disabled")
@@ -659,6 +666,19 @@ class BTChatGUI:
         if addr:
             self.server.set(addr)
             self._log(f"[scan] selected node {addr}")
+
+    def send_email(self):
+        sender = self.email_from.get().strip()
+        recipient = self.email_recipient.get().strip()
+        subject = self.email_subject.get().strip()
+        body = self.email_message_text.get("1.0", "end").strip()
+        self._log("[email] send requested (framework only; not implemented yet).")
+        self._log(
+            f"[email] from={sender or '<empty>'} to={recipient or '<empty>'} subject={subject or '<empty>'} body_len={len(body)}"
+        )
+
+    def check_email(self):
+        self._log("[email] check requested (framework only; not implemented yet).")
 
 
 def main():

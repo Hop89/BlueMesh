@@ -1,4 +1,5 @@
-﻿import argparse
+﻿#Moved To One File For Easier Testing 
+import argparse
 import socket
 import threading
 # Computer A commands
