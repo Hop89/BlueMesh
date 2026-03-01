@@ -74,9 +74,19 @@ constexpr char kServiceUuid[] = "7f8f0100-1b22-4f6c-a133-8f0f9a2e1001";
 constexpr char kConfigCharUuid[] = "7f8f0101-1b22-4f6c-a133-8f0f9a2e1001";
 constexpr char kStatusCharUuid[] = "7f8f0102-1b22-4f6c-a133-8f0f9a2e1001";
 
-BLEService g_service(kServiceUuid);
+constexpr char kRelayServiceUuid[] = "7f8f0200-1b22-4f6c-a133-8f0f9a2e1001";
+constexpr char kRelayInCharUuid[] = "7f8f0201-1b22-4f6c-a133-8f0f9a2e1001";
+constexpr char kRelayOutCharUuid[] = "7f8f0202-1b22-4f6c-a133-8f0f9a2e1001";
+
+BLEService g_provisioningService(kServiceUuid);
 BLEStringCharacteristic g_configChar(kConfigCharUuid, BLERead | BLEWrite, 240);
 BLEStringCharacteristic g_statusChar(kStatusCharUuid, BLERead, 240);
+
+BLEService g_relayService(kRelayServiceUuid);
+BLEStringCharacteristic g_relayInChar(kRelayInCharUuid, BLEWrite, 240);
+BLEStringCharacteristic g_relayOutChar(kRelayOutCharUuid, BLERead | BLENotify, 240);
+
+uint32_t g_relaySeq = 0;
 }  // namespace
 
 void BleProvisioning::begin(const String& moduleId) {
@@ -93,12 +103,17 @@ void BleProvisioning::begin(const String& moduleId) {
   BLE.setLocalName(deviceName.c_str());
   BLE.setDeviceName(deviceName.c_str());
 
-  g_service.addCharacteristic(g_configChar);
-  g_service.addCharacteristic(g_statusChar);
-  BLE.addService(g_service);
+  g_provisioningService.addCharacteristic(g_configChar);
+  g_provisioningService.addCharacteristic(g_statusChar);
+  BLE.addService(g_provisioningService);
 
   g_configChar.writeValue("moduleId=<id>;upstreamSsid=<ssid>;upstreamPass=<pass>;token=<token>;apSsid=<ssid>;apPass=<pass>");
   g_statusChar.writeValue(statusPayload().c_str());
+
+  g_relayService.addCharacteristic(g_relayInChar);
+  g_relayService.addCharacteristic(g_relayOutChar);
+  BLE.addService(g_relayService);
+  g_relayOutChar.writeValue("seq=0;msg=");
 
   BLE.advertise();
 }
@@ -110,6 +125,13 @@ void BleProvisioning::loop() {
     String payload = g_configChar.value();
     applyPayload(std::string(payload.c_str()));
     g_statusChar.writeValue(statusPayload().c_str());
+  }
+
+  if (g_relayInChar.written()) {
+    String incoming = g_relayInChar.value();
+    g_relaySeq++;
+    String relayPayload = "seq=" + String(g_relaySeq) + ";" + incoming;
+    g_relayOutChar.writeValue(relayPayload.c_str());
   }
 }
 

@@ -12,17 +12,38 @@ CONFIG_CHAR_UUID = "7f8f0101-1b22-4f6c-a133-8f0f9a2e1001"
 STATUS_CHAR_UUID = "7f8f0102-1b22-4f6c-a133-8f0f9a2e1001"
 
 
+def post_json(url: str, payload: dict, timeout: int = 10) -> dict:
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
 def fetch_token(center_url: str, module_id: str) -> str:
     url = f"{center_url.rstrip('/')}/api/provision/token"
-    payload = json.dumps({"moduleId": module_id}).encode("utf-8")
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
 
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-            return body["token"]
+        body = post_json(url, {"moduleId": module_id})
+        return body["token"]
     except (urllib.error.URLError, KeyError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"failed to fetch token from {url}: {exc}") from exc
+
+
+def register_module(args) -> None:
+    url = f"{args.center_url.rstrip('/')}/api/modules"
+    payload = {
+        "moduleId": args.module_id,
+        "alias": args.alias or args.module_id,
+        "zone": args.zone,
+        "backhaulSsid": args.upstream_ssid,
+        "firmwareVersion": args.firmware_version,
+    }
+
+    try:
+        post_json(url, payload)
+        print(f"Registered module in center API: {args.module_id}")
+    except (urllib.error.URLError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"failed to register module at {url}: {exc}") from exc
 
 
 async def resolve_device(module_id: str, explicit_address: str | None, scan_timeout: float):
@@ -61,13 +82,21 @@ async def provision(args):
 
     print(f"Using device: {address}")
     async with BleakClient(address) as client:
-        services = await client.get_services()
+        services = client.services
+        if not services:
+            services = await client.get_services()
         if SERVICE_UUID.lower() not in {s.uuid.lower() for s in services}:
             raise RuntimeError("target device does not expose BlueMesh provisioning service UUID")
 
         await client.write_gatt_char(CONFIG_CHAR_UUID, payload.encode("utf-8"), response=True)
-        status = await client.read_gatt_char(STATUS_CHAR_UUID)
-        print("Provisioning status:", status.decode("utf-8", errors="replace"))
+
+        try:
+            status = await client.read_gatt_char(STATUS_CHAR_UUID)
+            print("Provisioning status:", status.decode("utf-8", errors="replace"))
+        except Exception as exc:
+            print(f"Provisioning status read skipped: {exc}")
+
+    register_module(args)
 
 
 def parse_args():
@@ -79,6 +108,9 @@ def parse_args():
     parser.add_argument("--address", help="Explicit BLE address (skip discovery)")
     parser.add_argument("--ap-ssid")
     parser.add_argument("--ap-pass")
+    parser.add_argument("--alias")
+    parser.add_argument("--zone", default="unassigned")
+    parser.add_argument("--firmware-version", default="portenta-c33-dev")
     parser.add_argument("--scan-timeout", type=float, default=8.0)
     return parser.parse_args()
 
