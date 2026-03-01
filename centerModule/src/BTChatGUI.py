@@ -59,7 +59,8 @@ def fetch_weather(city: str) -> str:
     lotemp = current.get("temperature_2m_min", "?")
     precipprob = current.get("precipitation_probability_max", "?")
     code = current.get("weather_code", "?")
-    return f"Weather in {resolved_name}: High: {hitemp}*C, Low: {lotemp}*C, Precipitation: {precipprob}%, code {code}, ALERTS: {alert for alert in alerts})"
+    alerts_str = ", ".join(str(alert) for alert in alerts) if alerts else "None"
+    return f"Weather in {resolved_name}: High: {hitemp}*C, Low: {lotemp}*C, Precipitation: {precipprob}%, code {code}, ALERTS: {alerts_str}"
 
 
 def fetch_web_answer(query: str) -> str:
