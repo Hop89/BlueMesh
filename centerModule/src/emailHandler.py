@@ -36,7 +36,6 @@ def receive():
         parsed_email = email.message_from_bytes(raw_email_bytes)
         
         print(f"\n--- New Email: {parsed_email.get('Subject')} ---")
-        print(f"{parsed_email.get('Body')}")
         
         # 2. Extract the plain text body
         if parsed_email.is_multipart():
