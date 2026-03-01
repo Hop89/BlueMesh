@@ -127,6 +127,9 @@ class BTChatGUI:
         self.search_query = tk.StringVar(value="")
         self.message = tk.StringVar()
         self.node_pick = tk.StringVar(value="")
+        self.email_from = tk.StringVar(value="")
+        self.email_recipient = tk.StringVar(value="")
+        self.email_subject = tk.StringVar(value="")
         self.discovered_nodes: list[dict[str, str]] = []
 
         self.sock = None
@@ -224,6 +227,34 @@ class BTChatGUI:
         self.nodes_combo.bind("<<ComboboxSelected>>", lambda _e: self.select_discovered_node())
         self.scan_btn = ttk.Button(nodes_row, text="Scan Nodes", command=self.scan_nodes)
         self.scan_btn.grid(row=0, column=2)
+
+        email_from_row = ttk.Frame(frame)
+        email_from_row.grid(row=8, column=0, sticky="ew", pady=(8, 0))
+        email_from_row.columnconfigure(1, weight=1)
+        ttk.Label(email_from_row, text="Email From:").grid(row=0, column=0, sticky="w")
+        self.email_from_entry = ttk.Entry(email_from_row, textvariable=self.email_from)
+        self.email_from_entry.grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+        email_to_row = ttk.Frame(frame)
+        email_to_row.grid(row=9, column=0, sticky="ew", pady=(6, 0))
+        email_to_row.columnconfigure(1, weight=1)
+        ttk.Label(email_to_row, text="Recipient:").grid(row=0, column=0, sticky="w")
+        self.email_recipient_entry = ttk.Entry(email_to_row, textvariable=self.email_recipient)
+        self.email_recipient_entry.grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+        email_subject_row = ttk.Frame(frame)
+        email_subject_row.grid(row=10, column=0, sticky="ew", pady=(6, 0))
+        email_subject_row.columnconfigure(1, weight=1)
+        ttk.Label(email_subject_row, text="Subject:").grid(row=0, column=0, sticky="w")
+        self.email_subject_entry = ttk.Entry(email_subject_row, textvariable=self.email_subject)
+        self.email_subject_entry.grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+        email_message_row = ttk.Frame(frame)
+        email_message_row.grid(row=11, column=0, sticky="ew", pady=(6, 0))
+        email_message_row.columnconfigure(1, weight=1)
+        ttk.Label(email_message_row, text="Message:").grid(row=0, column=0, sticky="nw")
+        self.email_message_text = tk.Text(email_message_row, height=4, width=70)
+        self.email_message_text.grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
     def _update_mode_widgets(self):
         is_server = self.mode.get() == "server"
