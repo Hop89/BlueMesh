@@ -1,16 +1,21 @@
+import asyncio
+import base64
+import hashlib
 import json
+import os
 import queue
 import socket
 import threading
-import asyncio
 import tkinter as tk
-from tkinter import ttk
+import uuid
+from tkinter import filedialog, ttk
 from urllib import parse, request
 
 try:
     from bleak import BleakScanner
 except Exception:  # noqa: BLE001
     BleakScanner = None
+
 
 def fetch_weather(city: str) -> str:
     city = city.strip() or "Boston"
@@ -105,7 +110,9 @@ class BTChatGUI:
         self.sock = None
         self.conn = None
         self.running = False
+        self.send_lock = threading.Lock()
         self.ui_queue: queue.Queue[str] = queue.Queue()
+        self.incoming_files: dict[str, dict] = {}
 
         self._build_ui()
         self._poll_ui_queue()
@@ -153,6 +160,8 @@ class BTChatGUI:
         self.connect_btn.grid(row=0, column=0)
         self.disconnect_btn = ttk.Button(btn_row, text="Disconnect", command=self.stop_connection)
         self.disconnect_btn.grid(row=0, column=1, padx=(8, 0))
+        self.send_file_btn = ttk.Button(btn_row, text="Send File", command=self.send_file_from_host)
+        self.send_file_btn.grid(row=0, column=2, padx=(8, 0))
 
         self.log = tk.Text(frame, height=16, width=90, state="disabled")
         self.log.grid(row=3, column=0, sticky="nsew", pady=(8, 8))
@@ -198,12 +207,12 @@ class BTChatGUI:
         is_server = self.mode.get() == "server"
         self.host_entry.configure(state="normal" if is_server else "disabled")
         self.server_entry.configure(state="disabled" if is_server else "normal")
-        # Weather button is intended for client workflow.
         self.weather_btn.configure(state="normal" if not is_server else "disabled")
         self.search_btn.configure(state="normal" if not is_server else "disabled")
         self.search_entry.configure(state="normal" if not is_server else "disabled")
         self.scan_btn.configure(state="normal" if not is_server else "disabled")
         self.nodes_combo.configure(state="readonly" if not is_server else "disabled")
+        self.send_file_btn.configure(state="normal" if is_server else "disabled")
 
     def _append_log(self, text: str):
         self.log.configure(state="normal")
@@ -252,33 +261,45 @@ class BTChatGUI:
         self._log("[system] disconnected")
 
     def _recv_loop(self, conn: socket.socket):
+        rx_buffer = b""
         while self.running:
             try:
                 data = conn.recv(1024)
                 if not data:
                     self._log("[system] peer disconnected")
                     break
-                text = data.decode("utf-8", errors="replace")
-                if not self._handle_host_command(text):
-                    self._log(f"peer: {text}")
+                rx_buffer += data
+                while b"\n" in rx_buffer:
+                    raw_line, rx_buffer = rx_buffer.split(b"\n", 1)
+                    text = raw_line.decode("utf-8", errors="replace").strip()
+                    if not text:
+                        continue
+                    if not self._handle_protocol_message(text):
+                        self._log(f"peer: {text}")
             except OSError as exc:
                 self._log(f"[system] receive error: {exc}")
                 break
         self.running = False
 
-    def _send_raw(self, text: str) -> bool:
+    def _send_line(self, text: str) -> bool:
         if not self.running or not self.conn:
             self._log("[system] not connected")
             return False
         try:
-            self.conn.send(text.encode("utf-8"))
+            payload = (text + "\n").encode("utf-8")
+            with self.send_lock:
+                self.conn.sendall(payload)
             return True
         except OSError as exc:
             self._log(f"[system] send error: {exc}")
             return False
 
+    def _handle_protocol_message(self, text: str) -> bool:
+        if self._handle_file_protocol(text):
+            return True
+        return self._handle_host_command(text)
+
     def _handle_host_command(self, text: str) -> bool:
-        # Only host/server executes internet lookups for connected clients.
         if self.mode.get() != "server":
             return False
 
@@ -290,11 +311,11 @@ class BTChatGUI:
                 try:
                     self._log(f"[host] weather request: {city}")
                     result = fetch_weather(city)
-                    self._send_raw(f"[weather] {result}")
+                    self._send_line(f"[weather] {result}")
                     self._log(f"[host->peer] [weather] {result}")
                 except Exception as exc:  # noqa: BLE001
                     err = f"[weather] request failed: {exc}"
-                    self._send_raw(err)
+                    self._send_line(err)
                     self._log(f"[host->peer] {err}")
 
             threading.Thread(target=worker, daemon=True).start()
@@ -307,17 +328,114 @@ class BTChatGUI:
                 try:
                     self._log(f"[host] search request: {query or '<empty>'}")
                     result = fetch_web_answer(query)
-                    self._send_raw(f"[search] {result}")
+                    self._send_line(f"[search] {result}")
                     self._log(f"[host->peer] [search] {result}")
                 except Exception as exc:  # noqa: BLE001
                     err = f"[search] request failed: {exc}"
-                    self._send_raw(err)
+                    self._send_line(err)
                     self._log(f"[host->peer] {err}")
 
             threading.Thread(target=worker, daemon=True).start()
             return True
 
         return False
+
+    def _handle_file_protocol(self, text: str) -> bool:
+        if not text.startswith("/file_"):
+            return False
+
+        parts = text.split(" ", 3)
+        cmd = parts[0]
+
+        if cmd == "/file_begin":
+            if len(parts) < 4:
+                self._log("[file] malformed /file_begin")
+                return True
+            transfer_id = parts[1]
+            name = parse.unquote(parts[2])
+            try:
+                expected_size = int(parts[3])
+            except ValueError:
+                self._log("[file] invalid size in /file_begin")
+                return True
+            self.incoming_files[transfer_id] = {
+                "name": name,
+                "size": expected_size,
+                "buf": bytearray(),
+                "sha": hashlib.sha256(),
+            }
+            self._log(f"[file] incoming '{name}' ({expected_size} bytes)")
+            return True
+
+        if cmd == "/file_chunk":
+            if len(parts) < 4:
+                self._log("[file] malformed /file_chunk")
+                return True
+            transfer_id = parts[1]
+            state = self.incoming_files.get(transfer_id)
+            if state is None:
+                self._log("[file] chunk for unknown transfer")
+                return True
+
+            chunk_parts = parts[3].split(" ", 1)
+            if len(chunk_parts) != 2:
+                self._log("[file] malformed chunk payload")
+                return True
+            b64_data = chunk_parts[1]
+
+            try:
+                data = base64.b64decode(b64_data)
+            except Exception:  # noqa: BLE001
+                self._log("[file] invalid base64 chunk")
+                return True
+
+            state["buf"].extend(data)
+            state["sha"].update(data)
+            return True
+
+        if cmd == "/file_end":
+            if len(parts) < 4:
+                self._log("[file] malformed /file_end")
+                return True
+            transfer_id = parts[1]
+            end_parts = parts[3].split(" ", 1)
+            if len(end_parts) != 2:
+                self._log("[file] malformed /file_end payload")
+                return True
+
+            state = self.incoming_files.pop(transfer_id, None)
+            if state is None:
+                self._log("[file] end for unknown transfer")
+                return True
+
+            expected_sha = end_parts[1].strip()
+            actual_sha = state["sha"].hexdigest()
+            if actual_sha != expected_sha:
+                self._log("[file] checksum mismatch; file discarded")
+                return True
+
+            inbox_dir = os.path.join(os.path.expanduser("~"), "Downloads", "BlueMeshInbox")
+            os.makedirs(inbox_dir, exist_ok=True)
+            safe_name = self._safe_filename(state["name"])
+            out_path = os.path.join(inbox_dir, safe_name)
+            base, ext = os.path.splitext(out_path)
+            suffix = 1
+            while os.path.exists(out_path):
+                out_path = f"{base}_{suffix}{ext}"
+                suffix += 1
+
+            with open(out_path, "wb") as f:
+                f.write(state["buf"])
+
+            size = len(state["buf"])
+            self._log(f"[file] saved {size} bytes to {out_path}")
+            return True
+
+        return False
+
+    def _safe_filename(self, name: str) -> str:
+        cleaned = "".join(ch for ch in name if ch not in '<>:"/\\|?*').strip()
+        return cleaned or "received_file.bin"
 
     def _server_thread(self):
         try:
@@ -347,21 +465,62 @@ class BTChatGUI:
         text = self.message.get().strip()
         if not text:
             return
-        payload = f"{self.nickname.get().strip() or 'pc'}: {text}".encode("utf-8")
-        try:
-            if not self.running or not self.conn:
-                self._log("[system] not connected")
-                return
-            self.conn.send(payload)
+        payload = f"{self.nickname.get().strip() or 'pc'}: {text}"
+        if self._send_line(payload):
             self._log(f"me: {text}")
             self.message.set("")
-        except OSError as exc:
-            self._log(f"[system] send error: {exc}")
+
+    def send_file_from_host(self):
+        if self.mode.get() != "server":
+            self._log("[file] only host/server can send files.")
+            return
+        if not self.running or not self.conn:
+            self._log("[file] connect first.")
+            return
+        file_path = filedialog.askopenfilename(title="Select file to send")
+        if not file_path:
+            return
+        threading.Thread(target=self._send_file_worker, args=(file_path,), daemon=True).start()
+
+    def _send_file_worker(self, file_path: str):
+        try:
+            filename = os.path.basename(file_path)
+            size = os.path.getsize(file_path)
+            transfer_id = uuid.uuid4().hex[:10]
+            encoded_name = parse.quote(filename, safe="")
+            sha = hashlib.sha256()
+
+            self._log(f"[file] sending '{filename}' ({size} bytes)")
+            if not self._send_line(f"/file_begin {transfer_id} {encoded_name} {size}"):
+                return
+
+            chunk_size = 700
+            chunk_count = 0
+            sent_bytes = 0
+            with open(file_path, "rb") as f:
+                while True:
+                    block = f.read(chunk_size)
+                    if not block:
+                        break
+                    sha.update(block)
+                    b64 = base64.b64encode(block).decode("ascii")
+                    if not self._send_line(f"/file_chunk {transfer_id} {chunk_count} {b64}"):
+                        return
+                    chunk_count += 1
+                    sent_bytes += len(block)
+                    if chunk_count % 50 == 0 or sent_bytes == size:
+                        self._log(f"[file] progress {sent_bytes}/{size} bytes")
+
+            digest = sha.hexdigest()
+            self._send_line(f"/file_end {transfer_id} {chunk_count} {digest}")
+            self._log(f"[file] sent '{filename}' ({size} bytes, {chunk_count} chunks)")
+        except Exception as exc:  # noqa: BLE001
+            self._log(f"[file] send failed: {exc}")
 
     def request_weather(self):
         city = self.city.get().strip() or "Boston"
         if self.mode.get() == "client":
-            if self._send_raw(f"/weather {city}"):
+            if self._send_line(f"/weather {city}"):
                 self._log(f"[client] weather request sent to host: {city}")
             return
 
@@ -370,7 +529,7 @@ class BTChatGUI:
                 self._log("[weather] requesting weather API...")
                 result = fetch_weather(city)
                 self._log(f"[weather] {result}")
-                self._send_raw(f"[weather] {result}")
+                self._send_line(f"[weather] {result}")
             except Exception as exc:  # noqa: BLE001
                 self._log(f"[weather] request failed: {exc}")
 
@@ -379,7 +538,7 @@ class BTChatGUI:
     def request_web_search(self):
         q = self.search_query.get().strip()
         if self.mode.get() == "client":
-            if self._send_raw(f"/search {q}"):
+            if self._send_line(f"/search {q}"):
                 self._log(f"[client] search request sent to host: {q or '<empty>'}")
             return
 
@@ -388,7 +547,7 @@ class BTChatGUI:
                 self._log(f"[search] querying: {q or '<empty>'}")
                 result = fetch_web_answer(q)
                 self._log(f"[search] {result}")
-                self._send_raw(f"[search] {result}")
+                self._send_line(f"[search] {result}")
             except Exception as exc:  # noqa: BLE001
                 self._log(f"[search] request failed: {exc}")
 
