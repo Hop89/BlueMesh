@@ -673,14 +673,38 @@ class BTChatGUI:
         recipient = self.email_recipient.get().strip()
         subject = self.email_subject.get().strip()
         body = self.email_message_text.get("1.0", "end").strip()
-        emailHandler.send(recipient, subject, body)
-        self._log(
-            f"[email] from={sender or '<empty>'} to={recipient or '<empty>'} subject={subject or '<empty>'} body_len={len(body)}"
-        )
+        if not recipient:
+            self._log("[email] recipient is required.")
+            return
+        if not subject:
+            self._log("[email] subject is required.")
+            return
+        if not body:
+            self._log("[email] message body is required.")
+            return
+
+        def worker():
+            try:
+                self._log("[email] sending...")
+                emailHandler.send(
+                    recipient,
+                    subject,
+                    body,
+                    sender_email=sender or None,
+                )
+                self._log(
+                    f"[email] sent: from={sender or '<default>'} to={recipient} subject={subject} body_len={len(body)}"
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"[email] send failed: {exc}")
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def check_email(self):
         for email in emailHandler.receive():
-            self._log(f"[email]\nFrom: {email["from"]}\nSubject: {email["subject"]}\nBody:\n{email["body"]}")
+            self._log(
+                f"[email]\nFrom: {email.get('from', '')}\nSubject: {email.get('subject', '')}\nBody:\n{email.get('body', '')}"
+            )
         self._log("[email] check requested (framework only; not implemented yet).")
 
 

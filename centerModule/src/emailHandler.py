@@ -4,14 +4,26 @@ import mailtrap as mt
 import imaplib as iml
 import email
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_HERE, ".env"))
 load_dotenv()
 MAILTRAP_TOKEN = os.environ.get("MAILTRAP_TOKEN")
 GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
+MAIL_SENDER = os.environ.get("MAIL_SENDER", "hello@demomailtrap.co")
+MAIL_SENDER_NAME = os.environ.get("MAIL_SENDER_NAME", "BlueMesh")
 
-def send(receiver, subj, text, category=None):
+def send(receiver, subj, text, category=None, sender_email=None, sender_name=None):
+    if not MAILTRAP_TOKEN:
+        raise RuntimeError("MAILTRAP_TOKEN is not set. Add it to .env.")
+    if not receiver:
+        raise ValueError("receiver is required.")
+
     mail = mt.Mail(
-        sender=mt.Address(email="hello@demomailtrap.co", name="BlueMesh"),
+        sender=mt.Address(
+            email=sender_email or MAIL_SENDER,
+            name=sender_name or MAIL_SENDER_NAME,
+        ),
         to=[mt.Address(receiver)],
         subject=subj,
         text=text,
@@ -19,12 +31,12 @@ def send(receiver, subj, text, category=None):
     )
 
     client = mt.MailtrapClient(token=MAILTRAP_TOKEN)
-    response = client.send(mail)
-
-    # print(response)
+    return client.send(mail)
 
 def receive():
-    
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+        raise RuntimeError("GMAIL_USER/GMAIL_APP_PASSWORD are not set. Add them to .env.")
+
     mail = iml.IMAP4_SSL("imap.gmail.com")
     mail.login(GMAIL_USER, GMAIL_APP_PASSWORD)
     mail.select("inbox")
