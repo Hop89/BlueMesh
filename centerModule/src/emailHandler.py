@@ -9,7 +9,7 @@ MAILTRAP_TOKEN = os.environ.get("MAILTRAP_TOKEN")
 GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 
-def send(receiver, subj, text, category):
+def send(receiver, subj, text, category=None):
     mail = mt.Mail(
         sender=mt.Address(email="hello@demomailtrap.co", name="BlueMesh"),
         to=[mt.Address(receiver)],
