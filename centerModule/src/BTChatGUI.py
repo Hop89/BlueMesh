@@ -6,6 +6,11 @@ import asyncio
 import tkinter as tk
 from tkinter import ttk
 from urllib import parse, request
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+WX_TOKEN = os.environ.get("WX_TOKEN")
 
 try:
     from bleak import BleakScanner
@@ -19,8 +24,14 @@ def fetch_weather(city: str) -> str:
         "https://geocoding-api.open-meteo.com/v1/search?"
         + parse.urlencode({"name": city, "count": 1, "language": "en", "format": "json"})
     )
+    alert_url = "http://api.weatherapi.com/v1/alerts.json?key={WX_TOKEN}&q={city}"
+
+
     with request.urlopen(geo_url, timeout=8) as resp:
         geo = json.loads(resp.read().decode("utf-8"))
+
+    with request.urlopen(alert_url, timeout=8) as resp:
+        alerts = json.loads(resp.read().decode("utf-8"))['alerts']['alert']
 
     results = geo.get("results") or []
     if not results:
@@ -33,15 +44,17 @@ def fetch_weather(city: str) -> str:
 
     wx_url = (
         "https://api.open-meteo.com/v1/forecast?"
-        + parse.urlencode({"latitude": lat, "longitude": lon, "current": "temperature_2m,weather_code"})
+        + parse.urlencode({"latitude": lat, "longitude": lon, "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"})
     )
     with request.urlopen(wx_url, timeout=8) as resp:
         wx = json.loads(resp.read().decode("utf-8"))
 
-    current = wx.get("current", {})
-    temp = current.get("temperature_2m", "?")
+    current = wx.get("daily", {})
+    hitemp = current.get("temperature_2m_max", "?")
+    lotemp = current.get("temperature_2m_min", "?")
+    precipprob = current.get("precipitation_probability_max", "?")
     code = current.get("weather_code", "?")
-    return f"Weather in {resolved_name}: {temp}C (code {code})"
+    return f"Weather in {resolved_name}: High: {hitemp}*C, Low: {lotemp}*C, Precipitation: {precipprob}%, code {code}, ALERTS: {alert for alert in alerts})"
 
 
 def fetch_web_answer(query: str) -> str:
