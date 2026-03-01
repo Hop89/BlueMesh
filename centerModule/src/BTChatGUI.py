@@ -10,11 +10,6 @@ import tkinter as tk
 import uuid
 from tkinter import filedialog, ttk
 from urllib import parse, request
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-WX_TOKEN = os.environ.get("WX_TOKEN")
 
 try:
     from bleak import BleakScanner
@@ -29,14 +24,10 @@ def fetch_weather(city: str) -> str:
         "https://geocoding-api.open-meteo.com/v1/search?"
         + parse.urlencode({"name": city, "count": 1, "language": "en", "format": "json"})
     )
-    alert_url = "http://api.weatherapi.com/v1/alerts.json?key={WX_TOKEN}&q={city}"
-
 
     with request.urlopen(geo_url, timeout=8) as resp:
         geo = json.loads(resp.read().decode("utf-8"))
 
-    with request.urlopen(alert_url, timeout=8) as resp:
-        alerts = json.loads(resp.read().decode("utf-8"))['alerts']['alert']
 
     results = geo.get("results") or []
     if not results:
