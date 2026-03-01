@@ -1,0 +1,33 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BlueMesh Center</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <header>
+        <h1>BlueMesh Center Dashboard</h1>
+        <p>Provisioned relay modules and heartbeat status.</p>
+      </header>
+      <section>
+        <table>
+          <thead>
+            <tr>
+              <th>Module</th>
+              <th>Status</th>
+              <th>Zone</th>
+              <th>Clients</th>
+              <th>Last Heartbeat</th>
+              <th>Firmware</th>
+            </tr>
+          </thead>
+          <tbody id="moduleRows"></tbody>
+        </table>
+      </section>
+    </main>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
