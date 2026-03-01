@@ -258,11 +258,66 @@ class BTChatGUI:
                 if not data:
                     self._log("[system] peer disconnected")
                     break
-                self._log(f"peer: {data.decode('utf-8', errors='replace')}")
+                text = data.decode("utf-8", errors="replace")
+                if not self._handle_host_command(text):
+                    self._log(f"peer: {text}")
             except OSError as exc:
                 self._log(f"[system] receive error: {exc}")
                 break
         self.running = False
+
+    def _send_raw(self, text: str) -> bool:
+        if not self.running or not self.conn:
+            self._log("[system] not connected")
+            return False
+        try:
+            self.conn.send(text.encode("utf-8"))
+            return True
+        except OSError as exc:
+            self._log(f"[system] send error: {exc}")
+            return False
+
+    def _handle_host_command(self, text: str) -> bool:
+        # Only host/server executes internet lookups for connected clients.
+        if self.mode.get() != "server":
+            return False
+
+        msg = text.strip()
+        if msg.startswith("/weather "):
+            city = msg[len("/weather ") :].strip() or "Boston"
+
+            def worker():
+                try:
+                    self._log(f"[host] weather request: {city}")
+                    result = fetch_weather(city)
+                    self._send_raw(f"[weather] {result}")
+                    self._log(f"[host->peer] [weather] {result}")
+                except Exception as exc:  # noqa: BLE001
+                    err = f"[weather] request failed: {exc}"
+                    self._send_raw(err)
+                    self._log(f"[host->peer] {err}")
+
+            threading.Thread(target=worker, daemon=True).start()
+            return True
+
+        if msg.startswith("/search "):
+            query = msg[len("/search ") :].strip()
+
+            def worker():
+                try:
+                    self._log(f"[host] search request: {query or '<empty>'}")
+                    result = fetch_web_answer(query)
+                    self._send_raw(f"[search] {result}")
+                    self._log(f"[host->peer] [search] {result}")
+                except Exception as exc:  # noqa: BLE001
+                    err = f"[search] request failed: {exc}"
+                    self._send_raw(err)
+                    self._log(f"[host->peer] {err}")
+
+            threading.Thread(target=worker, daemon=True).start()
+            return True
+
+        return False
 
     def _server_thread(self):
         try:
@@ -289,14 +344,14 @@ class BTChatGUI:
             self.running = False
 
     def send_message(self):
-        if not self.running or not self.conn:
-            self._log("[system] not connected")
-            return
         text = self.message.get().strip()
         if not text:
             return
         payload = f"{self.nickname.get().strip() or 'pc'}: {text}".encode("utf-8")
         try:
+            if not self.running or not self.conn:
+                self._log("[system] not connected")
+                return
             self.conn.send(payload)
             self._log(f"me: {text}")
             self.message.set("")
@@ -304,23 +359,36 @@ class BTChatGUI:
             self._log(f"[system] send error: {exc}")
 
     def request_weather(self):
+        city = self.city.get().strip() or "Boston"
+        if self.mode.get() == "client":
+            if self._send_raw(f"/weather {city}"):
+                self._log(f"[client] weather request sent to host: {city}")
+            return
+
         def worker():
             try:
                 self._log("[weather] requesting weather API...")
-                result = fetch_weather(self.city.get())
+                result = fetch_weather(city)
                 self._log(f"[weather] {result}")
+                self._send_raw(f"[weather] {result}")
             except Exception as exc:  # noqa: BLE001
                 self._log(f"[weather] request failed: {exc}")
 
         threading.Thread(target=worker, daemon=True).start()
 
     def request_web_search(self):
+        q = self.search_query.get().strip()
+        if self.mode.get() == "client":
+            if self._send_raw(f"/search {q}"):
+                self._log(f"[client] search request sent to host: {q or '<empty>'}")
+            return
+
         def worker():
             try:
-                q = self.search_query.get().strip()
                 self._log(f"[search] querying: {q or '<empty>'}")
                 result = fetch_web_answer(q)
                 self._log(f"[search] {result}")
+                self._send_raw(f"[search] {result}")
             except Exception as exc:  # noqa: BLE001
                 self._log(f"[search] request failed: {exc}")
 
