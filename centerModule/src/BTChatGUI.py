@@ -40,18 +40,36 @@ def fetch_weather(city: str) -> str:
 
     wx_url = (
         "https://api.open-meteo.com/v1/forecast?"
-        + parse.urlencode({"latitude": lat, "longitude": lon, "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"})
+        + parse.urlencode(
+            {
+                "latitude": lat,
+                "longitude": lon,
+                "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+                "forecast_days": 5,
+                "timezone": "auto",
+            }
+        )
     )
     with request.urlopen(wx_url, timeout=8) as resp:
         wx = json.loads(resp.read().decode("utf-8"))
 
-    current = wx.get("daily", {})
-    hitemp = current.get("temperature_2m_max", "?")
-    lotemp = current.get("temperature_2m_min", "?")
-    precipprob = current.get("precipitation_probability_max", "?")
-    code = current.get("weather_code", "?")
-    alerts_str = ", ".join(str(alert) for alert in alerts) if alerts else "None"
-    return f"Weather in {resolved_name}: High: {hitemp}*C, Low: {lotemp}*C, Precipitation: {precipprob}%, code {code}"
+    daily = wx.get("daily", {})
+    dates = daily.get("time") or []
+    highs = daily.get("temperature_2m_max") or []
+    lows = daily.get("temperature_2m_min") or []
+    precip = daily.get("precipitation_probability_max") or []
+    codes = daily.get("weather_code") or []
+    if not dates:
+        return f"Weather API: no 5-day forecast available for {resolved_name}."
+
+    lines = []
+    for i, day in enumerate(dates[:5]):
+        hi = highs[i] if i < len(highs) else "?"
+        lo = lows[i] if i < len(lows) else "?"
+        pr = precip[i] if i < len(precip) else "?"
+        code = codes[i] if i < len(codes) else "?"
+        lines.append(f"{day}: hi {hi}C / lo {lo}C / precip {pr}% (code {code})")
+    return f"5-day forecast for {resolved_name}: " + " | ".join(lines)
 
 
 def fetch_web_answer(query: str) -> str:
