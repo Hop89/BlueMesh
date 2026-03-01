@@ -2,10 +2,15 @@ import json
 import queue
 import socket
 import threading
+import asyncio
 import tkinter as tk
 from tkinter import ttk
 from urllib import parse, request
 
+try:
+    from bleak import BleakScanner
+except Exception:  # noqa: BLE001
+    BleakScanner = None
 
 def fetch_weather(city: str) -> str:
     city = city.strip() or "Boston"
@@ -39,6 +44,48 @@ def fetch_weather(city: str) -> str:
     return f"Weather in {resolved_name}: {temp}C (code {code})"
 
 
+def fetch_web_answer(query: str) -> str:
+    query = query.strip()
+    if not query:
+        return "Web search: enter a query first."
+
+    search_url = (
+        "https://api.duckduckgo.com/?"
+        + parse.urlencode(
+            {
+                "q": query,
+                "format": "json",
+                "no_html": 1,
+                "no_redirect": 1,
+                "skip_disambig": 0,
+            }
+        )
+    )
+    with request.urlopen(search_url, timeout=10) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+
+    abstract = (data.get("AbstractText") or "").strip()
+    if abstract:
+        source = data.get("AbstractSource") or "web"
+        return f"{source}: {abstract}"
+
+    related = data.get("RelatedTopics") or []
+    for item in related:
+        text = (item.get("Text") or "").strip() if isinstance(item, dict) else ""
+        if text:
+            return f"Web result: {text}"
+        if isinstance(item, dict):
+            nested = item.get("Topics") or []
+            for n in nested:
+                nested_text = (n.get("Text") or "").strip()
+                if nested_text:
+                    return f"Web result: {nested_text}"
+
+    if data.get("Answer"):
+        return f"Answer: {data['Answer']}"
+    return "Web search: no quick answer found."
+
+
 class BTChatGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -50,7 +97,10 @@ class BTChatGUI:
         self.port = tk.IntVar(value=4)
         self.nickname = tk.StringVar(value="pc")
         self.city = tk.StringVar(value="Boston")
+        self.search_query = tk.StringVar(value="")
         self.message = tk.StringVar()
+        self.node_pick = tk.StringVar(value="")
+        self.discovered_nodes: list[dict[str, str]] = []
 
         self.sock = None
         self.conn = None
@@ -124,12 +174,36 @@ class BTChatGUI:
         self.weather_btn = ttk.Button(weather_row, text="Get Weather API", command=self.request_weather)
         self.weather_btn.grid(row=0, column=2)
 
+        search_row = ttk.Frame(frame)
+        search_row.grid(row=6, column=0, sticky="ew", pady=(8, 0))
+        search_row.columnconfigure(1, weight=1)
+        ttk.Label(search_row, text="Web Search:").grid(row=0, column=0, sticky="w")
+        self.search_entry = ttk.Entry(search_row, textvariable=self.search_query)
+        self.search_entry.grid(row=0, column=1, sticky="ew", padx=(6, 8))
+        self.search_entry.bind("<Return>", lambda _e: self.request_web_search())
+        self.search_btn = ttk.Button(search_row, text="Search Web API", command=self.request_web_search)
+        self.search_btn.grid(row=0, column=2)
+
+        nodes_row = ttk.Frame(frame)
+        nodes_row.grid(row=7, column=0, sticky="ew", pady=(8, 0))
+        nodes_row.columnconfigure(1, weight=1)
+        ttk.Label(nodes_row, text="BlueCast nodes:").grid(row=0, column=0, sticky="w")
+        self.nodes_combo = ttk.Combobox(nodes_row, textvariable=self.node_pick, state="readonly")
+        self.nodes_combo.grid(row=0, column=1, sticky="ew", padx=(6, 8))
+        self.nodes_combo.bind("<<ComboboxSelected>>", lambda _e: self.select_discovered_node())
+        self.scan_btn = ttk.Button(nodes_row, text="Scan Nodes", command=self.scan_nodes)
+        self.scan_btn.grid(row=0, column=2)
+
     def _update_mode_widgets(self):
         is_server = self.mode.get() == "server"
         self.host_entry.configure(state="normal" if is_server else "disabled")
         self.server_entry.configure(state="disabled" if is_server else "normal")
         # Weather button is intended for client workflow.
         self.weather_btn.configure(state="normal" if not is_server else "disabled")
+        self.search_btn.configure(state="normal" if not is_server else "disabled")
+        self.search_entry.configure(state="normal" if not is_server else "disabled")
+        self.scan_btn.configure(state="normal" if not is_server else "disabled")
+        self.nodes_combo.configure(state="readonly" if not is_server else "disabled")
 
     def _append_log(self, text: str):
         self.log.configure(state="normal")
@@ -239,6 +313,75 @@ class BTChatGUI:
                 self._log(f"[weather] request failed: {exc}")
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def request_web_search(self):
+        def worker():
+            try:
+                q = self.search_query.get().strip()
+                self._log(f"[search] querying: {q or '<empty>'}")
+                result = fetch_web_answer(q)
+                self._log(f"[search] {result}")
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"[search] request failed: {exc}")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def scan_nodes(self):
+        def worker():
+            if BleakScanner is None:
+                self._log("[scan] bleak not installed. Run: pip install bleak")
+                return
+            try:
+                self._log("[scan] scanning for BLE advertisements (6s)...")
+                devices = asyncio.run(BleakScanner.discover(timeout=6.0))
+                filtered = []
+                for d in devices:
+                    name = (d.name or "").strip()
+                    address = (getattr(d, "address", "") or "").strip()
+                    if not address:
+                        continue
+                    if "bluecast" in name.lower() or "bluemesh" in name.lower():
+                        filtered.append({"name": name or "Unknown", "address": address})
+
+                self.discovered_nodes = filtered
+                if not filtered:
+                    self.root.after(
+                        0,
+                        lambda: (
+                            self.nodes_combo.configure(values=[]),
+                            self.node_pick.set(""),
+                        ),
+                    )
+                    self._log("[scan] no BlueCast/BlueMesh nodes found.")
+                    return
+
+                labels = [f"{n['name']} ({n['address']})" for n in filtered]
+                self.root.after(
+                    0,
+                    lambda: (
+                        self.nodes_combo.configure(values=labels),
+                        self.node_pick.set(labels[0]),
+                        self.select_discovered_node(),
+                    ),
+                )
+                self._log(f"[scan] found {len(filtered)} node(s).")
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"[scan] failed: {exc}")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def select_discovered_node(self):
+        selection = self.node_pick.get().strip()
+        if not selection:
+            return
+        start = selection.rfind("(")
+        end = selection.rfind(")")
+        if start == -1 or end == -1 or end <= start + 1:
+            return
+        addr = selection[start + 1 : end].strip()
+        if addr:
+            self.server.set(addr)
+            self._log(f"[scan] selected node {addr}")
 
 
 def main():
