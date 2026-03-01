@@ -432,6 +432,31 @@ class BTChatGUI:
             threading.Thread(target=worker, daemon=True).start()
             return True
 
+        if msg == "/email_check":
+            def worker():
+                try:
+                    self._log("[host] checking inbox...")
+                    emails = emailHandler.receive()
+                    if not emails:
+                        self._send_line("[email] no unread messages.")
+                        self._log("[host->peer] [email] no unread messages.")
+                        return
+
+                    self._send_line(f"[email] unread count: {len(emails)}")
+                    for item in emails:
+                        sender = self._one_line(item.get("from", ""), 120)
+                        subject = self._one_line(item.get("subject", ""), 120)
+                        body = self._one_line(item.get("body", ""), 180)
+                        self._send_line(f"[email] From: {sender} | Subject: {subject} | Body: {body}")
+                    self._log(f"[host->peer] sent {len(emails)} email(s)")
+                except Exception as exc:  # noqa: BLE001
+                    err = f"[email] host check failed: {exc}"
+                    self._send_line(err)
+                    self._log(f"[host->peer] {err}")
+
+            threading.Thread(target=worker, daemon=True).start()
+            return True
+
         return False
 
     def _handle_file_protocol(self, text: str) -> bool:
@@ -527,6 +552,12 @@ class BTChatGUI:
     def _safe_filename(self, name: str) -> str:
         cleaned = "".join(ch for ch in name if ch not in '<>:"/\\|?*').strip()
         return cleaned or "received_file.bin"
+
+    def _one_line(self, text: str, max_len: int) -> str:
+        normalized = " ".join((text or "").split())
+        if len(normalized) <= max_len:
+            return normalized
+        return normalized[: max_len - 3] + "..."
 
     def _server_thread(self):
         try:
@@ -749,11 +780,29 @@ class BTChatGUI:
         threading.Thread(target=worker, daemon=True).start()
 
     def check_email(self):
-        for email in emailHandler.receive():
-            self._log(
-                f"[email]\nFrom: {email.get('from', '')}\nSubject: {email.get('subject', '')}\nBody:\n{email.get('body', '')}"
-            )
-        self._log("[email] check requested (framework only; not implemented yet).")
+        if self.mode.get() == "client":
+            if self._send_line("/email_check"):
+                self._log("[client] email check request sent to host")
+            return
+
+        def worker():
+            try:
+                self._log("[email] checking inbox...")
+                emails = emailHandler.receive()
+                if not emails:
+                    self._log("[email] no unread messages.")
+                    return
+                self._log(f"[email] unread count: {len(emails)}")
+                for item in emails:
+                    self._log(
+                        f"[email] From: {self._one_line(item.get('from', ''), 120)} | "
+                        f"Subject: {self._one_line(item.get('subject', ''), 120)} | "
+                        f"Body: {self._one_line(item.get('body', ''), 180)}"
+                    )
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"[email] check failed: {exc}")
+
+        threading.Thread(target=worker, daemon=True).start()
 
 
 def main():
