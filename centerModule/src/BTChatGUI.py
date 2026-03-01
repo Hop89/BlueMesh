@@ -10,6 +10,7 @@ import tkinter as tk
 import uuid
 from tkinter import filedialog, ttk
 from urllib import parse, request
+import emailHandler
 
 try:
     from bleak import BleakScanner
@@ -672,12 +673,14 @@ class BTChatGUI:
         recipient = self.email_recipient.get().strip()
         subject = self.email_subject.get().strip()
         body = self.email_message_text.get("1.0", "end").strip()
-        self._log("[email] send requested (framework only; not implemented yet).")
+        emailHandler.send(recipient, subject, body)
         self._log(
             f"[email] from={sender or '<empty>'} to={recipient or '<empty>'} subject={subject or '<empty>'} body_len={len(body)}"
         )
 
     def check_email(self):
+        for email in emailHandler.receive():
+            self._log(f"[email]\nFrom: {email["from"]}\nSubject: {email["subject"]}\nBody:\n{email["body"]}")
         self._log("[email] check requested (framework only; not implemented yet).")
 
 
