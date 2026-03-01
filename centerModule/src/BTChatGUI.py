@@ -58,7 +58,6 @@ def fetch_weather(city: str) -> str:
     highs = daily.get("temperature_2m_max") or []
     lows = daily.get("temperature_2m_min") or []
     precip = daily.get("precipitation_probability_max") or []
-    codes = daily.get("weather_code") or []
     if not dates:
         return f"Weather API: no 5-day forecast available for {resolved_name}."
 
@@ -67,8 +66,8 @@ def fetch_weather(city: str) -> str:
         hi = highs[i] if i < len(highs) else "?"
         lo = lows[i] if i < len(lows) else "?"
         pr = precip[i] if i < len(precip) else "?"
-        code = codes[i] if i < len(codes) else "?"
-        lines.append(f"{day}: hi {hi}C / lo {lo}C / precip {pr}% (code {code})")
+
+        lines.append(f"{day}: hi {hi}C / lo {lo}C / precip {pr}% ")
     return f"5-day forecast for {resolved_name}: " + " | ".join(lines)
 
 
