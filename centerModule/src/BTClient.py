@@ -3,10 +3,10 @@ import socket
 import threading
 # Computer A commands
 # cd centerModule
-# python src\BTServer.py --host 00:00:00:00:00:00 --port 4 --nickname pc-a
+# python src/BTServer.py --host 00:00:00:00:00:00 --port 4 --nickname pc-a
 
 # Computer B commands 
-# python src\BTClient.py --server <PC_A_BLUETOOTH_MAC> --port 4 --nickname pc-b
+# python src/BTClient.py --server <00:00:00:00:00:00> --port 4 --nickname pc-b
 
 
 def recv_loop(conn: socket.socket):
